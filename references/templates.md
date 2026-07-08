@@ -228,3 +228,132 @@ Document the public surface (`__init__` exports, OpenAPI routes, exported types)
 entry with signature, parameters, return type, one-line description, grouped by category.
 In **light** mode, write this only if the project is clearly a library or API server. In
 **deep** mode, always include it when any public surface exists.
+
+---
+
+# Optional pages (author only when artifacts exist)
+
+**Hard rule for all three pages below: author a page only if concrete artifacts exist in
+the codebase — never fabricate.** Detection happens in the scan step (see `SKILL.md`).
+If only 1–2 trivial facts exist (e.g. just a `test` script in `package.json` with no test
+files), fold them into `getting-started.md` instead of creating a thin page. When a page
+is skipped, skip it silently — no placeholder file.
+
+---
+
+## testing.md
+
+```markdown
+# Testing
+
+<1-2 sentences: what test harness this codebase uses and the one command to run everything.>
+
+## Harness
+
+- **Runner:** <pytest / jest / go test / ... + version if pinned>
+- **Config:** `<pytest.ini / jest.config.ts / ...>` — <what it sets: paths, markers, coverage>
+
+## Test Layout
+
+- `<tests/ or __tests__/ path>` — <what lives here; naming convention, e.g. `test_*.py`>
+
+## Fixtures & Test Data
+
+- `<conftest.py / fixtures/ / factories / snapshot dir>` — <what it provides and who uses it>
+
+## Running Tests
+
+\`\`\`bash
+<all tests>
+<one file>
+<one test by name/pattern>
+<with coverage, if configured>
+\`\`\`
+
+## Writing a New Test
+
+<Conventions: where the file goes, base classes/helpers to use, how fixtures are pulled in.>
+
+## Gotchas
+
+- <Anything non-obvious: required services, env vars, slow/flaky markers, ordering>
+```
+
+**Deep mode** adds: a walkthrough of one representative test (what it exercises and how),
+custom assertions/plugins/markers, and notable mocking or snapshot patterns.
+
+---
+
+## debugging.md
+
+```markdown
+# Debugging
+
+<1-2 sentences: the fastest way to see what this system is doing.>
+
+## Logging
+
+- <How to raise verbosity: flag / env var / config key> — <where logs go>
+
+## Debug Entry Points
+
+- `<dev server command / REPL / scripts/debug_*.py>` — <what it lets you poke at>
+
+## Debug Flags & Endpoints
+
+- `<DEBUG=1 / feature flag / /debug route>` — <effect>
+
+## Profiling & Inspection
+
+- `<profiler / trace tool / launch.json config>` — <when to reach for it>
+```
+
+**Deep mode** adds: a worked walkthrough of debugging one realistic failure (e.g. "a
+request returns 500 — where to look, in order").
+
+Every entry must point at a real artifact (a script, a config key, a flag read in code) —
+cite the file that implements it.
+
+---
+
+## deployment.md (CI/CD & Deployment)
+
+```markdown
+# CI/CD & Deployment
+
+<1-2 sentences: what happens automatically on PR, merge, and release.>
+
+## Pipeline Overview
+
+- **On PR:** <jobs that run>
+- **On merge to <branch>:** <jobs>
+- **On tag/release:** <jobs>
+
+## Workflows
+
+| File | Trigger | What it does |
+|---|---|---|
+| `<.github/workflows/ci.yml>` | <push/PR/tag> | <one line> |
+
+## Build Artifacts
+
+- <Docker image / package / binary> — built by <workflow>, published to <where>
+
+## Deployment Targets & Infrastructure
+
+- <k8s manifests / terraform / helm chart paths> — <what they provision>
+
+## Release Process
+
+<How a release actually happens: tagging convention, version bump, manual steps if any.>
+```
+
+**Deep mode** adds: a Mermaid flowchart of the pipeline (commit → CI → artifact → deploy)
+and failure/rollback notes (what happens when a stage fails, how to roll back).
+
+**Monorepo component scope exception:** CI configs usually live at the repo root, outside
+`SCOPE`. You may read root-level CI/deploy configs **read-only** and document **only the
+parts that reference the component** (path filters matching `SCOPE_REL`, jobs that build
+or test it). Unrelated root jobs stay undocumented. Root files read this way must still
+pass `apply_ignore.py check`, and each one gets recorded in the state file's
+`external_ci_files` (see `references/maintenance.md`).

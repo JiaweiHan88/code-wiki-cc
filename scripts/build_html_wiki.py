@@ -16,6 +16,7 @@ Expected content layout (any missing file is simply skipped):
     <dir>/modules/*.md         -> "Modules" group (one entry each)
     <dir>/diagrams/class-diagram.md, sequences.md -> "Diagrams" group
     <dir>/api.md               -> "API"
+    <dir>/testing.md, debugging.md, deployment.md -> "Development" group
 
 Usage:
     python build_html_wiki.py <content-dir> --title "My Project" [--out <dir>/index.html]
@@ -34,11 +35,17 @@ SECTION_ANCHORS = {
     "class-diagram.md": "class-diagram",
     "sequences.md": "sequences",
     "api.md": "api",
+    "testing.md": "testing",
+    "debugging.md": "debugging",
+    "deployment.md": "deployment",
 }
 SECTION_LABELS = {
     "class-diagram": "Class Diagram",
     "sequences": "Sequence Diagrams",
     "api": "API Reference",
+    "testing": "Testing",
+    "debugging": "Debugging",
+    "deployment": "CI/CD & Deployment",
 }
 
 
@@ -234,6 +241,9 @@ def discover(content: Path):
     for fname, sid in (("diagrams/class-diagram.md", "class-diagram"), ("diagrams/sequences.md", "sequences")):
         add(content / fname, sid, SECTION_LABELS[sid], "Diagrams")
     add(content / "api.md", "api", "API Reference", None)
+    for fname in ("testing.md", "debugging.md", "deployment.md"):
+        sid = SECTION_ANCHORS[fname]
+        add(content / fname, sid, SECTION_LABELS[sid], "Development")
     return sections, module_names
 
 
@@ -292,6 +302,7 @@ def build_html(title: str, sections, module_names, mermaid_src: str, subtitle: s
             "</script>"
         )
     esc_title = html.escape(title)
+    subtitle_html = f'<div class="subtitle">{html.escape(subtitle)}</div>' if subtitle else ""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -355,7 +366,7 @@ ul,ol {{ padding-left:1.5em; }}
 <body>
 <aside id="sidebar">
   <div class="brand">{esc_title}</div>
-  {("<div class=\"subtitle\">" + html.escape(subtitle) + "</div>") if subtitle else ""}
+  {subtitle_html}
   <input id="filter" type="text" placeholder="Filter…" aria-label="Filter navigation">
   {nav}
 </aside>

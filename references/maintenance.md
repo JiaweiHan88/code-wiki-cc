@@ -64,9 +64,21 @@ HASH=$(find "$WIKI_DIR" -type f -not -name .codewiki-state.json -not -name index
         2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum)
 ```
 
-**No-op** (skip the whole run, touch nothing) when all hold: `DIRTY` empty, `CHANGED` empty, and
-`HASH` equals the recorded `content_hash`. Report: `wiki already current — no changes under
-<SCOPE_REL> since <gitHead>` and stop. Otherwise proceed to a surgical update.
+**External CI files.** If the state file records `external_ci_files` (root-level CI/deploy configs
+documented under the CI scope exception — see `SKILL.md` step 5), also diff those exact paths;
+they sit outside `SCOPE_REL`, so the scoped diff above misses them:
+
+```bash
+CI_CHANGED=""
+[ "$HEAD" != "$GITHEAD" ] && [ -n "$EXTERNAL_CI_FILES" ] && \
+  CI_CHANGED=$(git -C "$REPO_ROOT" --no-pager diff --name-only "$GITHEAD"..HEAD -- $EXTERNAL_CI_FILES)
+```
+
+Any hit in `CI_CHANGED` defeats the no-op and marks `deployment.md` affected.
+
+**No-op** (skip the whole run, touch nothing) when all hold: `DIRTY` empty, `CHANGED` empty,
+`CI_CHANGED` empty, and `HASH` equals the recorded `content_hash`. Report: `wiki already current —
+no changes under <SCOPE_REL> since <gitHead>` and stop. Otherwise proceed to a surgical update.
 
 **When `.codewikiignore` is active**, drop ignored paths from both `DIRTY` and `CHANGED` before
 judging no-op or building the impact list — a change under an ignored path (e.g. `secrets/`,
@@ -83,6 +95,11 @@ CHANGED=$(printf '%s\n' $CHANGED | while read -r p; do \
 1. Collect changed source files = `CHANGED` ∪ (uncommitted paths from `DIRTY`), all under `SCOPE_REL`.
 2. Map each changed file to the module page that owns it (a module page's **Key Files** define its
    source set). Build a small impact list: `changed file → affected page → why`.
+   Optional pages own their signal files too (in addition to any module page): changed test
+   files/runner configs/fixtures → `testing.md`; changed debug scripts/logging config → `debugging.md`;
+   changed CI/deploy files (including any hit in `CI_CHANGED`) → `deployment.md`. If the change set
+   introduces **new** signal files for an optional page not yet in `optional_pages`, re-run detection
+   for that page and author it if warranted.
 3. Regenerate **only** affected module pages. Regenerate `README.md`/`architecture.md` only if the
    set of modules or the entrypoints changed. Preserve accurate pages verbatim — prefer replacing a
    stale sentence over rewriting a page. No formatting-only churn.
@@ -101,9 +118,16 @@ CHANGED=$(printf '%s\n' $CHANGED | while read -r p; do \
   "updatedAt": "<UTC ISO 8601, e.g. 2026-07-08T12:34:56Z>",
   "generator": "claude code-wiki skill",
   "content_hash": "<sha256 over wiki files, excluding state + index.html>",
-  "modules_documented": ["<module>", "..."]
+  "modules_documented": ["<module>", "..."],
+  "optional_pages": ["testing", "deployment"],
+  "external_ci_files": [".github/workflows/ci.yml"]
 }
 ```
+
+`optional_pages` lists which of `testing`/`debugging`/`deployment` were generated (update mode
+maintains these; re-detect only when new signal files appear in the change set). `external_ci_files`
+lists repo-root CI/deploy configs documented under the CI scope exception — repo-relative paths,
+used by the no-op check above. Both are `[]` when not applicable.
 
 Get `updatedAt` and `gitHead` from the shell (`date -u +%Y-%m-%dT%H:%M:%SZ`, `git rev-parse HEAD`),
 never guessed. On a no-op, do **not** rewrite this file.
