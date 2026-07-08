@@ -1,0 +1,12 @@
+{
+  "name": "code-wiki",
+  "displayName": "Code Wiki",
+  "description": "Generate and maintain a browsable wiki for a codebase or monorepo component — a self-contained HTML site with an overview, architecture, per-module deep-dives, and Mermaid diagrams.",
+  "author": {
+    "name": "Jiawei Han",
+    "email": "jiawei.han@mapbox.com"
+  },
+  "homepage": "https://github.com/JiaweiHan88/code-wiki-cc",
+  "repository": "https://github.com/JiaweiHan88/code-wiki-cc",
+  "keywords": ["documentation", "wiki", "codebase", "architecture", "diagrams", "onboarding"]
+}

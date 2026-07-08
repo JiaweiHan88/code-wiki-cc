@@ -1,0 +1,15 @@
+{
+  "name": "jiaweihan",
+  "owner": {
+    "name": "Jiawei Han",
+    "email": "jiawei.han@mapbox.com"
+  },
+  "description": "Jiawei Han's Claude Code plugins.",
+  "plugins": [
+    {
+      "name": "code-wiki",
+      "source": "./",
+      "description": "Generate and maintain a browsable wiki for a codebase or monorepo component."
+    }
+  ]
+}

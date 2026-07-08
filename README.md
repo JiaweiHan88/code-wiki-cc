@@ -12,7 +12,20 @@ It produces *reference* documentation — what the code is and how it works (plu
 
 ## Install (Claude Code)
 
-Skills are loaded from the filesystem — no upload step. Clone (or copy) this repo into a `code-wiki` folder under your skills directory:
+### Option A — Plugin marketplace (recommended)
+
+This repo doubles as its own plugin marketplace (`.claude-plugin/marketplace.json` + `.claude-plugin/plugin.json`). Inside a Claude Code session:
+
+```
+/plugin marketplace add JiaweiHan88/code-wiki-cc
+/plugin install code-wiki@jiaweihan
+```
+
+No `version` is pinned in the manifest, so `/plugin update code-wiki@jiaweihan` picks up new commits on `main` as they land. Once installed this way, invoke it as `/code-wiki` (the skill is namespaced under the plugin name).
+
+### Option B — Manual copy into `~/.claude/skills`
+
+Skills are also loaded from the filesystem directly — no upload step. Clone (or copy) this repo into a `code-wiki` folder under your skills directory:
 
 ```bash
 # Personal (available in all your projects)
@@ -91,13 +104,16 @@ python3 scripts/apply_ignore.py suggest /path/to/repo --scope packages/api
 
 ```
 code-wiki/
-├── SKILL.md                     # the skill: workflow, modes, scope, safety rules
+├── .claude-plugin/
+│   ├── plugin.json               # plugin manifest (name, description, author)
+│   └── marketplace.json          # marketplace catalog — this repo lists itself as a plugin
+├── SKILL.md                      # the skill: workflow, modes, scope, safety rules
 ├── references/
-│   ├── templates.md             # per-document Markdown templates + depth notes
-│   └── maintenance.md           # scope resolution, init/update lifecycle, no-op, state schema
+│   ├── templates.md              # per-document Markdown templates + depth notes
+│   └── maintenance.md            # scope resolution, init/update lifecycle, no-op, state schema
 └── scripts/
-    ├── build_html_wiki.py       # Markdown sections → one self-contained index.html
-    └── apply_ignore.py          # .codewikiignore matcher (discovery filter, deny-rule + suggestion generator)
+    ├── build_html_wiki.py        # Markdown sections → one self-contained index.html
+    └── apply_ignore.py           # .codewikiignore matcher (discovery filter, deny-rule + suggestion generator)
 ```
 
 ## Requirements
