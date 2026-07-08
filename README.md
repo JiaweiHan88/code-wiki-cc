@@ -81,6 +81,12 @@ monorepo/
 
 A closer file wins for whatever it has an opinion on (it can even `!`-re-include something the root ignored); where it's silent, the parent file's verdict stands. This mirrors how nested `.gitignore` files actually work in git.
 
+**No ignore file yet?** The skill scans the target directory for common vendor/build/generated paths (`node_modules`, `dist`, `vendor`, `*.min.js`, protobuf output, lockfiles, snapshot fixtures, etc.) and proposes a `.codewikiignore` for you to accept, edit, or skip — nothing is written to disk without confirming. Run the scan yourself any time:
+
+```bash
+python3 scripts/apply_ignore.py suggest /path/to/repo --scope packages/api
+```
+
 ## Files
 
 ```
@@ -91,7 +97,7 @@ code-wiki/
 │   └── maintenance.md           # scope resolution, init/update lifecycle, no-op, state schema
 └── scripts/
     ├── build_html_wiki.py       # Markdown sections → one self-contained index.html
-    └── apply_ignore.py          # .codewikiignore matcher (discovery filter + deny-rule generator)
+    └── apply_ignore.py          # .codewikiignore matcher (discovery filter, deny-rule + suggestion generator)
 ```
 
 ## Requirements
@@ -112,6 +118,7 @@ python3 scripts/build_html_wiki.py path/to/wiki --title "my-project" --subtitle 
 python3 scripts/apply_ignore.py list  /path/to/repo --scope packages/api
 python3 scripts/apply_ignore.py check /path/to/repo packages/api/secrets/key.pem
 python3 scripts/apply_ignore.py deny-rules /path/to/repo --scope packages/api   # entries for .claude/settings.json
+python3 scripts/apply_ignore.py suggest /path/to/repo --scope packages/api     # propose one
 ```
 
 ## Safety

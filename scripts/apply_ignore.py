@@ -19,11 +19,15 @@ Actions:
   list ROOT [--scope P]    print allowed (non-ignored) files under ROOT (or ROOT/P)
   check ROOT PATH...       print "IGNORED <p>" / "OK <p>" per PATH; exit 1 if any ignored
   deny-rules ROOT [--scope P]   print suggested Claude Code deny entries (Read/Bash)
+  suggest ROOT [--scope P]      scan for vendor/build/generated paths and print a candidate
+                                .codewikiignore body (not written to disk) for the caller to
+                                review with the user before creating the file
 
 Always-skipped noise (independent of ignore files): .git, node_modules, .venv, venv,
 __pycache__, dist, build, target, .mypy_cache, .pytest_cache.
 """
 import argparse
+import datetime
 import os
 import re
 from pathlib import Path
@@ -31,6 +35,53 @@ from pathlib import Path
 IGNORE_NAMES = (".codewikiignore",)
 ALWAYS_SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__",
                "dist", "build", "target", ".mypy_cache", ".pytest_cache"}
+
+# Heuristics for `suggest`. Grouped so the proposed file reads as reasoned
+# categories, not a flat dump. A directory name here only becomes a suggested
+# rule if it is actually found in the scanned tree.
+SUGGEST_VENDOR_DIRS = {
+    "node_modules": "JS/TS dependency tree", "vendor": "vendored dependencies",
+    "third_party": "vendored dependencies", "bower_components": "legacy JS dependencies",
+    "Pods": "CocoaPods dependencies", ".venv": "Python virtualenv", "venv": "Python virtualenv",
+    "env": "Python virtualenv", "virtualenv": "Python virtualenv", ".tox": "tox environments",
+    "site-packages": "installed Python packages",
+}
+SUGGEST_BUILD_DIRS = {
+    "dist": "build output", "build": "build output", "out": "build output",
+    "bin": "compiled output", "obj": "compiled output", ".next": "Next.js build cache",
+    ".nuxt": "Nuxt build cache", ".output": "build output", ".svelte-kit": "SvelteKit build cache",
+    "target": "Rust/JVM build output", ".gradle": "Gradle cache", ".turbo": "Turborepo cache",
+    ".parcel-cache": "Parcel cache", "coverage": "test coverage reports",
+    ".nyc_output": "test coverage reports", "DerivedData": "Xcode build output",
+    ".angular": "Angular build cache",
+}
+SUGGEST_TOOLING_DIRS = {
+    "__pycache__": "Python bytecode cache", ".mypy_cache": "mypy cache",
+    ".pytest_cache": "pytest cache", ".cache": "generic cache", ".idea": "IDE settings",
+    ".vs": "IDE settings",
+}
+SUGGEST_GENERATED_DIR_NAMES = {"generated": "generated code", "gen": "generated code",
+                                "__generated__": "generated code", "autogen": "generated code"}
+SUGGEST_REVIEW_DIRS = {"__snapshots__": "test snapshot fixtures", "fixtures": "test fixtures",
+                        "testdata": "test fixtures", "cassettes": "recorded HTTP fixtures"}
+
+SUGGEST_LOCKFILES = {
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock", "Gemfile.lock",
+    "poetry.lock", "Pipfile.lock", "composer.lock", "go.sum", "mix.lock",
+}
+SUGGEST_GENERATED_GLOBS = [
+    ("*.min.js", lambda n: n.endswith(".min.js")),
+    ("*.min.css", lambda n: n.endswith(".min.css")),
+    ("*_pb2.py", lambda n: n.endswith("_pb2.py")),
+    ("*_pb2_grpc.py", lambda n: n.endswith("_pb2_grpc.py")),
+    ("*.pb.go", lambda n: n.endswith(".pb.go")),
+    ("*.g.dart", lambda n: n.endswith(".g.dart")),
+    ("*.designer.cs", lambda n: n.endswith(".designer.cs")),
+]
+SUGGEST_BINARY_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".mp4", ".mov",
+                        ".zip", ".tar", ".gz", ".pdf", ".woff", ".woff2", ".ttf", ".otf",
+                        ".bin", ".dylib", ".so", ".dll", ".exe", ".class", ".jar", ".wasm"}
+SUGGEST_BINARY_DIR_THRESHOLD = 15  # binary files in one dir before flagging it for review
 
 
 def _translate(pat: str) -> str:
@@ -171,12 +222,111 @@ def walk_allowed(root: Path, scope: Path, layers: dict):
                 yield rel
 
 
+def suggest_ignore(root: Path, scope: Path) -> str:
+    """Scan `scope` for vendor/build/generated paths and render a candidate
+    .codewikiignore body. Pure read-only scan; caller decides whether to write it."""
+    recommended = {cat: {} for cat in ("vendor", "build", "tooling", "generated_dir")}
+    lockfiles_found = {}        # filename -> example_rel_path
+    generated_globs_found = {}  # glob -> (count, example_rel_path)
+    review_dirs = {}            # rel_path -> reason
+    binary_heavy_dirs = {}      # rel_path -> count
+
+    for dirpath, dirnames, filenames in os.walk(scope):
+        rel_dir = os.path.relpath(dirpath, root)
+        rel_dir = "" if rel_dir == "." else rel_dir.replace(os.sep, "/")
+        keep = []
+        binary_count = 0
+        for d in list(dirnames):
+            rd = f"{rel_dir}/{d}" if rel_dir else d
+            if d in ALWAYS_SKIP:
+                continue  # already always excluded, no need to suggest it
+            matched = False
+            for table, cat in ((SUGGEST_VENDOR_DIRS, "vendor"), (SUGGEST_BUILD_DIRS, "build"),
+                                (SUGGEST_TOOLING_DIRS, "tooling"),
+                                (SUGGEST_GENERATED_DIR_NAMES, "generated_dir")):
+                if d in table:
+                    recommended[cat].setdefault(d, rd)
+                    matched = True
+                    break  # don't descend into a dir we're about to suggest excluding
+            if matched:
+                continue
+            if d in SUGGEST_REVIEW_DIRS:
+                review_dirs.setdefault(rd, SUGGEST_REVIEW_DIRS[d])
+                continue
+            keep.append(d)
+        dirnames[:] = keep
+
+        for fn in filenames:
+            if fn in IGNORE_NAMES:
+                continue
+            rf = f"{rel_dir}/{fn}" if rel_dir else fn
+            if fn in SUGGEST_LOCKFILES:
+                lockfiles_found.setdefault(fn, rf)
+            for glob, pred in SUGGEST_GENERATED_GLOBS:
+                if pred(fn):
+                    count, example = generated_globs_found.get(glob, (0, rf))
+                    generated_globs_found[glob] = (count + 1, example)
+            if os.path.splitext(fn)[1].lower() in SUGGEST_BINARY_EXTS:
+                binary_count += 1
+        if binary_count >= SUGGEST_BINARY_DIR_THRESHOLD:
+            binary_heavy_dirs[rel_dir or "."] = binary_count
+
+    lines = [
+        f"# Suggested by code-wiki's directory scan on {datetime.date.today().isoformat()}.",
+        "# This file was NOT created automatically — review, edit, then save it as",
+        "# .codewikiignore at the repository root (or inside a component for a nested rule).",
+        "# Gitignore syntax: '#' comments, blank lines, */**/? globs, 'dir/' rules, '!' negation.",
+    ]
+
+    def emit_section(title, items_dict, reason_table):
+        if not items_dict:
+            return
+        lines.append("")
+        lines.append(f"# {title}")
+        for name in sorted(items_dict):
+            reason = reason_table.get(name, "")
+            example = items_dict[name]
+            lines.append(f"{name}/  # {reason} (e.g. {example})")
+
+    emit_section("Dependency / vendor directories", recommended["vendor"], SUGGEST_VENDOR_DIRS)
+    emit_section("Build output", recommended["build"], SUGGEST_BUILD_DIRS)
+    emit_section("Tooling caches", recommended["tooling"], SUGGEST_TOOLING_DIRS)
+    emit_section("Generated code directories", recommended["generated_dir"], SUGGEST_GENERATED_DIR_NAMES)
+
+    if lockfiles_found:
+        lines.append("")
+        lines.append("# Lockfiles (noisy, rarely worth documenting)")
+        for fn in sorted(lockfiles_found):
+            lines.append(fn)
+
+    if generated_globs_found:
+        lines.append("")
+        lines.append("# Generated code files")
+        for glob in sorted(generated_globs_found):
+            count, example = generated_globs_found[glob]
+            lines.append(f"{glob}  # {count} file(s), e.g. {example}")
+
+    if review_dirs or binary_heavy_dirs:
+        lines.append("")
+        lines.append("# Consider also excluding (heuristic — commented out, review before enabling):")
+        for rd in sorted(review_dirs):
+            lines.append(f"# {rd}/  # {review_dirs[rd]}")
+        for rd in sorted(binary_heavy_dirs):
+            lines.append(f"# {rd}/  # {binary_heavy_dirs[rd]} binary/media files")
+
+    if len(lines) == 4:  # only the header — nothing found
+        lines.append("")
+        lines.append("# No vendor/build/generated paths were detected under this scope.")
+
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Apply nested .codewikiignore files for the code-wiki skill.")
-    ap.add_argument("action", choices=["active", "list", "check", "deny-rules"])
+    ap.add_argument("action", choices=["active", "list", "check", "deny-rules", "suggest"])
     ap.add_argument("root")
     ap.add_argument("rest", nargs="*")
-    ap.add_argument("--scope", default=None, help="Restrict list/deny-rules to this path (relative to root or absolute)")
+    ap.add_argument("--scope", default=None, help="Restrict list/deny-rules/suggest to this path (relative to root or absolute)")
     args = ap.parse_args()
 
     root = Path(args.root).resolve()
@@ -191,6 +341,13 @@ def main() -> int:
             scope = root / scope
         for p in sorted(walk_allowed(root, scope.resolve(), layers)):
             print(p)
+        return 0
+
+    if args.action == "suggest":
+        scope = Path(args.scope) if args.scope else root
+        if not scope.is_absolute():
+            scope = root / scope
+        print(suggest_ignore(root, scope.resolve()), end="")
         return 0
 
     if args.action == "check":

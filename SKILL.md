@@ -28,7 +28,7 @@ Git is repo-wide; the wiki targets one folder. See `references/maintenance.md` f
 - Output goes **inside the component**: `WIKI_DIR = SCOPE/wiki`. Nothing is written at the monorepo root. In the Claude.ai sandbox, use `/mnt/user-data/outputs/<name>-wiki` instead and `present_files` at the end.
 - **All git commands run at `REPO_ROOT` but are path-filtered with `-- "$SCOPE_REL"`** — this is how a huge monorepo's history stays relevant to just the folder.
 
-## Step 1.5 — Load the ignore list (`.codewikiignore`)
+## Step 1.5 — Load or propose the ignore list (`.codewikiignore`)
 
 If `REPO_ROOT/.codewikiignore` exists with active rules, ignored paths must stay **entirely** out of the run — not read, not shelled to, not described. Gitignore syntax: `#` comments, blank lines, `*`/`**`/`?` globs, directory rules (`dir/`), `!` negation. **Nests like real `.gitignore`**: a file inside a subfolder (e.g. a monorepo component) applies only within that subfolder, with patterns relative to *its own* directory, and can override — including re-include via `!` — whatever a parent-directory file said, but only for paths it has an opinion on; where it's silent, the parent's verdict stands. The bundled `scripts/apply_ignore.py` is the single source of truth and handles this layering automatically:
 
@@ -39,6 +39,19 @@ if python3 "$IGN" active "$REPO_ROOT"; then
   python3 "$IGN" list "$REPO_ROOT" --scope "$SCOPE_REL" | grep -v "^$WIKI_REL/"
 fi
 ```
+
+**No ignore file exists yet anywhere in the chain.** Before scanning, in an interactive session run a one-time proposal instead of silently walking everything:
+
+```bash
+python3 "$IGN" suggest "$REPO_ROOT" --scope "$SCOPE_REL"
+```
+
+This is a read-only scan (vendor/build/tooling dirs, generated-code files, lockfiles, and — commented out — snapshot/fixture and binary-heavy dirs worth a second look; note that `node_modules`, `.venv`, `dist`, `build`, `target`, etc. are already hardcoded always-skip in the script and won't reappear here). If it reports anything beyond "nothing detected", show the proposed contents to the user and ask (`AskUserQuestion`) how to proceed:
+- **Create it as proposed** — write the output verbatim to `REPO_ROOT/.codewikiignore` (or `SCOPE/.codewikiignore` for a component-only scan), then proceed as if it had already existed (reload via `list` above).
+- **Let me edit first** — show the text, apply the user's edits, then write it.
+- **Skip** — proceed without creating a file; don't ask again for the rest of this run.
+
+In a non-interactive/headless run (no way to ask), skip the proposal and proceed without creating a file — never write `.codewikiignore` without the user confirming its contents.
 
 Rules while an ignore list is active:
 - Drive all discovery (`find`/`rg`/`ls`/`view`) from that allowed list. Never `view`/`cat`/`grep`/`git show` a path outside it, even to "verify" — check first with `python3 "$IGN" check "$REPO_ROOT" <path>`.
@@ -73,7 +86,7 @@ Run the scoped, read-only git commands in `references/maintenance.md` (status/re
 | Step | Action |
 |---|---|
 | 1 | Resolve `REPO_ROOT`, `SCOPE`, `SCOPE_REL`, `WIKI_DIR` |
-| 1.5 | Load `.codewikiignore`; if active, restrict discovery to `apply_ignore.py list` and filter git evidence |
+| 1.5 | Load `.codewikiignore`; if missing anywhere in the chain, `apply_ignore.py suggest` and ask the user before creating one; if active, restrict discovery to `apply_ignore.py list` and filter git evidence |
 | 2 | Resolve lifecycle (init/update/auto) × depth (light/deep) |
 | 3 | Collect scoped git evidence |
 | 4 | **update**: run the no-op check (`references/maintenance.md`) — stop if nothing changed |
@@ -118,6 +131,7 @@ A full deep wiki for a big component is expensive. Scan to depth 3; skip vendore
 - **Mermaid:** quote labels with slashes/parens (`A["a / b"]`); `<br>` for line breaks; generics render `~T~`; no `%%{init}%%` blocks (the build script escapes `<>&` inside diagrams for you).
 - **Reading secrets.** Never open `.env` or credential files.
 - **Touching an ignored path.** When `.codewikiignore` is active, never read/shell/describe a path outside `apply_ignore.py list` — `check` it first if unsure.
+- **Writing `.codewikiignore` without asking.** `apply_ignore.py suggest` only prints a candidate; never save it to disk before the user has confirmed (or edited) it.
 
 ## Verification
 
@@ -145,6 +159,6 @@ Spot-check 2–3 referenced source paths resolve, and confirm no path outside `S
 ## Bundled resources
 
 - `scripts/build_html_wiki.py` — stdlib-only builder → one self-contained `index.html` with a **3-level sidebar** (group → page → the page's `##` subsections, auto-expanding), `--title`/`--subtitle` (subtitle shows the `repo ▸ component` path), active-link highlighting, a filter box, dark-mode, and Mermaid.
-- `scripts/apply_ignore.py` — stdlib matcher for `.codewikiignore` (gitignore syntax). `active` (is it on?), `list` (allowed files under a scope), `check` (is a path ignored?), `deny-rules` (Read/Bash deny entries for `.claude/settings.json`). The single source of truth for what the wiki may touch.
+- `scripts/apply_ignore.py` — stdlib matcher for `.codewikiignore` (gitignore syntax). `active` (is it on?), `list` (allowed files under a scope), `check` (is a path ignored?), `deny-rules` (Read/Bash deny entries for `.claude/settings.json`), `suggest` (scan for vendor/build/generated paths and print a candidate ignore file when none exists yet — never written without user confirmation). The single source of truth for what the wiki may touch.
 - `references/templates.md` — per-document Markdown templates and depth notes. Read before authoring.
 - `references/maintenance.md` — scope resolution, scoped git, the init/update lifecycle, the no-op check, surgical-update mechanics, and the state-file schema. Read before Step 1.
